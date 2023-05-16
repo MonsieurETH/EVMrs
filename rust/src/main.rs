@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /**
  * EVM From Scratch
  * Rust template
@@ -14,6 +16,7 @@
  */
 use evm::evm;
 use evm::EvmContext;
+use evm::EvmData;
 use evm::TxData;
 use primitive_types::U256;
 use serde::Deserialize;
@@ -53,7 +56,37 @@ fn main() {
 
         let code: Vec<u8> = hex::decode(&test.code.bin).unwrap();
 
-        let result = evm(&code, data[index].block.clone(), data[index].tx.clone());
+        let mut state: HashMap<String, String> = HashMap::new();
+        let mut balances: HashMap<String, U256> = HashMap::new();
+
+        balances.insert(
+            "173983468828192506341714248598145129238407026077".to_string(),
+            U256::from(256),
+        );
+
+        balances.insert(
+            "0x1e79b045dc29eae9fdc69673c9dcd7c53e5e159d".to_string(),
+            U256::from(512),
+        );
+
+        state.insert(
+            "91343852333181432387730302044767688728495786666".to_string(),
+            "2".to_string(),
+        );
+
+        state.insert(
+            "91343852333181432387730302044767688728495787074".to_string(),
+            "60426000526001601ff3".to_string(),
+        );
+
+        let mut evm_data = EvmData {
+            context: test.block.clone(),
+            tx_data: test.tx.clone(),
+            state: state,
+            balances: balances,
+        };
+
+        let result = evm(&code, &mut evm_data);
 
         let mut expected_stack: Vec<U256> = Vec::new();
         if let Some(ref stacks) = test.expect.stack {

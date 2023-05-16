@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use funcs::is_valid_jump_dest;
 use primitive_types::{U256, U512};
@@ -7,7 +7,9 @@ mod funcs;
 use crate::funcs::{sar, sdiv, sgt, signextend, slt, smod};
 use sha3::{Digest, Keccak256};
 
+#[derive(Debug, Clone)]
 pub struct EvmResult {
+    pub value: Option<U256>,
     pub stack: Vec<U256>,
     pub success: bool,
 }
@@ -36,6 +38,14 @@ pub struct TxData {
 pub struct EvmMemory {
     pub memory: Vec<u8>,
     pub size: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvmData {
+    pub context: Option<EvmContext>,
+    pub tx_data: Option<TxData>,
+    pub state: HashMap<String, String>,
+    pub balances: HashMap<String, U256>,
 }
 
 impl EvmMemory {
@@ -77,27 +87,10 @@ impl EvmMemory {
     }
 }
 
-pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>) -> EvmResult {
+pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
     let mut stack: Vec<U256> = Vec::new();
     let mut pc = 0;
     let mut memory = EvmMemory::new();
-    let mut state: HashMap<String, U256> = HashMap::new();
-    let mut balances: HashMap<String, U256> = HashMap::new();
-
-    balances.insert(
-        "173983468828192506341714248598145129238407026077".to_string(),
-        U256::from(256),
-    );
-
-    balances.insert(
-        "0x1e79b045dc29eae9fdc69673c9dcd7c53e5e159d".to_string(),
-        U256::from(512),
-    );
-
-    state.insert(
-        "91343852333181432387730302044767688728495786666".to_string(),
-        U256::from(2),
-    );
 
     let code = _code.as_ref();
 
@@ -149,20 +142,20 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             // ADDMOD
             let a = stack.pop().unwrap();
             let b = stack.pop().unwrap();
-            let N: U256 = stack.pop().unwrap();
+            let n: U256 = stack.pop().unwrap();
             let sum = a.overflowing_add(b).0;
-            let res = sum.checked_rem(N).or_else(|| Some(U256::zero())).unwrap();
+            let res = sum.checked_rem(n).or_else(|| Some(U256::zero())).unwrap();
             stack.push(res);
         } else if opcode == 0x09 {
             // MULMOD
             let a: U512 = stack.pop().unwrap().into();
             let b: U512 = stack.pop().unwrap().into();
-            let N: U512 = stack.pop().unwrap().into();
+            let n: U512 = stack.pop().unwrap().into();
 
-            let res: U256 = if N == U512::zero() {
+            let res: U256 = if n == U512::zero() {
                 U256::zero()
             } else {
-                let v = (a * b) % N;
+                let v = (a * b) % n;
                 v.try_into().expect("c is less than U256::MAX")
             };
 
@@ -292,29 +285,29 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             stack.push(U256::from_big_endian(&result));
         } else if opcode == 0x30 {
             // ADDRESS
-            let address = tx.clone().unwrap().to.unwrap();
+            let address = data.tx_data.clone().unwrap().to.unwrap();
             stack.push(U256::from_str_radix(address.as_str(), 16).unwrap());
         } else if opcode == 0x31 {
             // BALANCE
             let address = stack.pop().unwrap();
-            let balance = balances.get(&address.to_string());
+            let balance = data.balances.get(&address.to_string());
             stack.push(*balance.unwrap_or(&U256::zero()));
         } else if opcode == 0x32 {
             // ORIGIN
-            let origin = tx.clone().unwrap().origin.unwrap();
+            let origin = data.tx_data.clone().unwrap().origin.unwrap();
             stack.push(U256::from_str_radix(origin.as_str(), 16).unwrap())
         } else if opcode == 0x33 {
             // CALLER
-            let data = tx.clone().unwrap().from.unwrap();
+            let data = data.tx_data.clone().unwrap().from.unwrap();
             stack.push(U256::from_str_radix(data.as_str(), 16).unwrap());
         } else if opcode == 0x34 {
             // CALLVALUE
-            let value = tx.clone().unwrap().value.unwrap();
+            let value = data.tx_data.clone().unwrap().value.unwrap();
             stack.push(U256::from_str_radix(value.as_str(), 16).unwrap());
         } else if opcode == 0x35 {
             // CALLDATALOAD
             let i = stack.pop().unwrap();
-            let data = tx.clone().unwrap().data.unwrap();
+            let data = data.tx_data.clone().unwrap().data.unwrap();
             let bytes = data
                 .as_bytes()
                 .chunks(2)
@@ -333,7 +326,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             stack.push(U256::from_str_radix(data.join("").as_str(), 16).unwrap())
         } else if opcode == 0x36 {
             // CALLDATASIZE
-            match tx {
+            match data.tx_data {
                 Some(ref txdata) => {
                     let b = txdata.clone().data.unwrap();
                     let bytes = b
@@ -352,7 +345,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             let source_offset = stack.pop().unwrap();
             let size = stack.pop().unwrap();
 
-            let data = tx.clone().unwrap().data.unwrap();
+            let data = data.tx_data.clone().unwrap().data.unwrap();
             let bytes = data
                 .as_bytes()
                 .chunks(2)
@@ -391,14 +384,14 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             }
         } else if opcode == 0x3a {
             // GASPRICE
-            let gasprice = tx.clone().unwrap().gasprice.unwrap();
+            let gasprice = data.tx_data.clone().unwrap().gasprice.unwrap();
             stack.push(U256::from_str_radix(gasprice.as_str(), 16).unwrap());
         } else if opcode == 0x3b {
             // EXTCODESIZE
             let address = stack.pop().unwrap();
-            if state.contains_key(&address.to_string()) {
-                let hardcoded_size = state.get(&address.to_string()).unwrap();
-                stack.push(U256::from(hardcoded_size));
+            if data.state.contains_key(&address.to_string()) {
+                let hardcoded_size = data.state.get(&address.to_string()).unwrap();
+                stack.push(U256::from_str(hardcoded_size).unwrap());
             } else {
                 stack.push(U256::zero());
             }
@@ -432,7 +425,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
         } else if opcode == 0x3f {
             // EXTCODEHASH
             let address = stack.pop().unwrap();
-            if state.contains_key(&address.to_string()) {
+            if data.state.contains_key(&address.to_string()) {
                 /*
                 Diferent value after hashing.
 
@@ -456,36 +449,36 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             // BLOCKHASH
         } else if opcode == 0x41 {
             // COINBASE
-            let coinbase = ctx.clone().unwrap().coinbase.unwrap();
+            let coinbase = data.context.clone().unwrap().coinbase.unwrap();
             stack.push(U256::from_str_radix(coinbase.as_str(), 16).unwrap());
         } else if opcode == 0x42 {
             // TIMESTAMP
-            let timestamp = ctx.clone().unwrap().timestamp.unwrap();
+            let timestamp = data.context.clone().unwrap().timestamp.unwrap();
             stack.push(U256::from_str_radix(timestamp.as_str(), 16).unwrap());
         } else if opcode == 0x43 {
             // NUMBER
-            let number = ctx.clone().unwrap().number.unwrap();
+            let number = data.context.clone().unwrap().number.unwrap();
             stack.push(U256::from_str_radix(number.as_str(), 16).unwrap())
         } else if opcode == 0x44 {
             // DIFFICULTY
-            let difficulty = ctx.clone().unwrap().difficulty.unwrap();
+            let difficulty = data.context.clone().unwrap().difficulty.unwrap();
             stack.push(U256::from_str_radix(difficulty.as_str(), 16).unwrap())
         } else if opcode == 0x45 {
             // GASLIMIT
-            let gaslimit = ctx.clone().unwrap().gaslimit.unwrap();
+            let gaslimit = data.context.clone().unwrap().gaslimit.unwrap();
             stack.push(U256::from_str_radix(gaslimit.as_str(), 16).unwrap())
         } else if opcode == 0x46 {
             // CHAINID
-            let chainid = ctx.clone().unwrap().chainid.unwrap();
+            let chainid = data.context.clone().unwrap().chainid.unwrap();
             stack.push(U256::from_str_radix(chainid.as_str(), 16).unwrap())
         } else if opcode == 0x47 {
             // SELFBALANCE
-            let address = tx.clone().unwrap().to.unwrap();
-            let balance = balances.get(&address.to_string());
+            let address = data.tx_data.clone().unwrap().to.unwrap();
+            let balance = data.balances.get(&address.to_string());
             stack.push(*balance.unwrap_or(&U256::zero()));
         } else if opcode == 0x48 {
             // BASEFEE
-            let base_fee = ctx.clone().unwrap().basefee.unwrap();
+            let base_fee = data.context.clone().unwrap().basefee.unwrap();
             stack.push(U256::from_str_radix(base_fee.as_str(), 16).unwrap())
         } else if opcode == 0x50 {
             // POP
@@ -497,9 +490,8 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             stack.push(value);
         } else if opcode == 0x52 {
             // MSTORE
-            let a = stack.pop().unwrap();
+            let index = stack.pop().unwrap().as_usize();
             let value = stack.pop().unwrap();
-            let index = a.as_usize();
             for i in 0..32 {
                 memory.write_u8(index + i, value.byte(31 - i));
             }
@@ -512,23 +504,28 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
         } else if opcode == 0x54 {
             // SLOAD
             let key = stack.pop().unwrap();
-            let value = state.get(&key.to_string());
-            stack.push(*value.unwrap_or(&U256::zero()));
+            let value = data.state.get(&key.to_string());
+            match value {
+                Some(v) => stack.push(U256::from_str_radix(v, 16).unwrap()),
+                None => stack.push(U256::zero()),
+            }
+            //stack.push(*value.unwrap_or(&U256::zero()));
         } else if opcode == 0x55 {
             // SSTORE
             let key = stack.pop().unwrap();
             let value = stack.pop().unwrap();
 
             if value == U256::zero() {
-                state.remove(&key.to_string());
+                data.state.remove(&key.to_string());
             } else {
-                state.insert(key.to_string(), value);
+                data.state.insert(key.to_string(), value.to_string());
             }
         } else if opcode == 0x56 {
             // JUMP
             let dest = stack.pop().unwrap().as_usize();
             if !is_valid_jump_dest(code, dest) {
                 return EvmResult {
+                    value: None,
                     stack,
                     success: false,
                 };
@@ -542,6 +539,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
 
             if !is_valid_jump_dest(code, dest) {
                 return EvmResult {
+                    value: None,
                     stack,
                     success: false,
                 };
@@ -576,6 +574,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             let dup_number = (opcode - 0x80 + 1) as usize;
             if dup_number > stack.len() {
                 return EvmResult {
+                    value: None,
                     stack,
                     success: false,
                 };
@@ -588,6 +587,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             let swap_number = (opcode - 0x90 + 1) as usize;
             if swap_number + 1 > stack.len() {
                 return EvmResult {
+                    value: None,
                     stack,
                     success: false,
                 };
@@ -619,18 +619,39 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
         } else if opcode == 0xf1 {
             // CALL
             let _gas = stack.pop().unwrap();
-            let _to = stack.pop().unwrap();
+            let to = stack.pop().unwrap();
             let _value = stack.pop().unwrap();
             let _args_offset = stack.pop().unwrap();
             let _args_size = stack.pop().unwrap();
-            let _ret_offset = stack.pop().unwrap();
-            let _ret_size = stack.pop().unwrap();
+            let ret_offset = stack.pop().unwrap();
+            let ret_size = stack.pop().unwrap();
+
+            let code_str = data.state.get(&to.to_string()).unwrap().clone();
+            let code: Vec<u8> = hex::decode(code_str).unwrap();
+            let res = evm(code, data);
+            if res.success {
+                for i in 0..ret_size.as_usize() {
+                    memory.write_u8(ret_offset.as_usize() + i, res.value.unwrap().byte(i));
+                }
+                stack.push(U256::one());
+            } else {
+                stack.push(U256::zero());
+            }
         } else if opcode == 0xf2 {
             // CALLCODE
         } else if opcode == 0xf3 {
             // RETURN
-            let _offset = stack.pop().unwrap();
-            let _size = stack.pop().unwrap();
+            let offset = stack.pop().unwrap().as_usize();
+            let size = stack.pop().unwrap().as_usize();
+
+            let ret = memory.read_u8s(offset, size);
+            let value = Some(U256::from_big_endian(&ret));
+
+            return EvmResult {
+                value,
+                stack,
+                success: true,
+            };
 
             // Return result
         } else if opcode == 0xf4 {
@@ -641,24 +662,28 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
             // STATICCALL
         } else if opcode == 0xfd {
             // REVERT
-            let _offset = stack.pop().unwrap();
-            let _size = stack.pop().unwrap();
+            let offset = stack.pop().unwrap().as_usize();
+            let size = stack.pop().unwrap().as_usize();
 
-            // Same as RETURN
+            let ret = memory.read_u8s(offset, size);
+            let value = Some(U256::from_big_endian(&ret));
 
             return EvmResult {
+                value,
                 stack,
                 success: false,
             };
         } else if opcode == 0xfe {
             // INVALID
             return EvmResult {
+                value: None,
                 stack,
                 success: false,
             };
         } else if opcode == 0xff {
             // SELFDESTRUCT
             return EvmResult {
+                value: None,
                 stack,
                 success: false,
             };
@@ -667,6 +692,7 @@ pub fn evm(_code: impl AsRef<[u8]>, ctx: Option<EvmContext>, tx: Option<TxData>)
 
     stack = stack.into_iter().rev().collect();
     return EvmResult {
+        value: None,
         stack: stack,
         success: true,
     };
