@@ -79,6 +79,16 @@ fn main() {
             "60426000526001601ff3".to_string(),
         );
 
+        state.insert(
+            "91343852333181432387730302044767688728495787075".to_string(),
+            "3360005260206000f3".to_string(),
+        );
+
+        state.insert(
+            "91343852333181432387730302044767688728495787076".to_string(),
+            "60426000526001601ffd".to_string(),
+        );
+
         let mut evm_data = EvmData {
             context: test.block.clone(),
             tx_data: test.tx.clone(),

@@ -9,7 +9,7 @@ use sha3::{Digest, Keccak256};
 
 #[derive(Debug, Clone)]
 pub struct EvmResult {
-    pub value: Option<U256>,
+    pub value: Option<Vec<u8>>,
     pub stack: Vec<U256>,
     pub success: bool,
 }
@@ -298,8 +298,15 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             stack.push(U256::from_str_radix(origin.as_str(), 16).unwrap())
         } else if opcode == 0x33 {
             // CALLER
-            let data = data.tx_data.clone().unwrap().from.unwrap();
-            stack.push(U256::from_str_radix(data.as_str(), 16).unwrap());
+            let data_from = data.tx_data.clone().unwrap().from;
+            let res = match data_from {
+                Some(address) => address,
+                None => {
+                    let address = data.tx_data.clone().unwrap().to.unwrap();
+                    address
+                }
+            };
+            stack.push(U256::from_str_radix(res.as_str(), 16).unwrap());
         } else if opcode == 0x34 {
             // CALLVALUE
             let value = data.tx_data.clone().unwrap().value.unwrap();
@@ -623,17 +630,18 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             let _value = stack.pop().unwrap();
             let _args_offset = stack.pop().unwrap();
             let _args_size = stack.pop().unwrap();
-            let ret_offset = stack.pop().unwrap();
-            let ret_size = stack.pop().unwrap();
+            let ret_offset = stack.pop().unwrap().as_usize();
+            let ret_size = stack.pop().unwrap().as_usize();
 
             let code_str = data.state.get(&to.to_string()).unwrap().clone();
             let code: Vec<u8> = hex::decode(code_str).unwrap();
             let res = evm(code, data);
-            if res.success {
-                for i in 0..ret_size.as_usize() {
-                    memory.write_u8(ret_offset.as_usize() + i, res.value.unwrap().byte(i));
+            if res.value.is_some() {
+                let val = res.value.unwrap();
+                for i in 0..ret_size {
+                    memory.write_u8(ret_offset + i, val[i]);
                 }
-                stack.push(U256::one());
+                stack.push(U256::from(res.success as u64));
             } else {
                 stack.push(U256::zero());
             }
@@ -644,11 +652,10 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             let offset = stack.pop().unwrap().as_usize();
             let size = stack.pop().unwrap().as_usize();
 
-            let ret = memory.read_u8s(offset, size);
-            let value = Some(U256::from_big_endian(&ret));
+            let ret = memory.read_u8s(offset, size * 8);
 
             return EvmResult {
-                value,
+                value: Some(ret),
                 stack,
                 success: true,
             };
@@ -666,10 +673,9 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             let size = stack.pop().unwrap().as_usize();
 
             let ret = memory.read_u8s(offset, size);
-            let value = Some(U256::from_big_endian(&ret));
 
             return EvmResult {
-                value,
+                value: Some(ret),
                 stack,
                 success: false,
             };
@@ -687,6 +693,8 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                 stack,
                 success: false,
             };
+        } else {
+            println!("Unknown opcode: {}", opcode);
         }
     }
 
