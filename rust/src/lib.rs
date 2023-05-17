@@ -12,6 +12,7 @@ pub struct EvmResult {
     pub value: Option<Vec<u8>>,
     pub stack: Vec<U256>,
     pub success: bool,
+    pub return_data: Vec<u8>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -91,6 +92,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
     let mut stack: Vec<U256> = Vec::new();
     let mut pc = 0;
     let mut memory = EvmMemory::new();
+    let mut return_data = vec![];
 
     let code = _code.as_ref();
 
@@ -427,8 +429,17 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             }
         } else if opcode == 0x3d {
             // RETURNDATASIZE
+            stack.push(U256::from(return_data.len()));
         } else if opcode == 0x3e {
             // RETURNDATACOPY
+            let dest_offset = stack.pop().unwrap().as_usize();
+            let source_offset = stack.pop().unwrap().as_usize();
+            let size = stack.pop().unwrap().as_usize();
+
+            let data = return_data[source_offset..source_offset + size].to_vec();
+            for i in 0..size {
+                memory.write_u8(dest_offset + i, data[i]);
+            }
         } else if opcode == 0x3f {
             // EXTCODEHASH
             let address = stack.pop().unwrap();
@@ -516,7 +527,6 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                 Some(v) => stack.push(U256::from_str_radix(v, 16).unwrap()),
                 None => stack.push(U256::zero()),
             }
-            //stack.push(*value.unwrap_or(&U256::zero()));
         } else if opcode == 0x55 {
             // SSTORE
             let key = stack.pop().unwrap();
@@ -535,6 +545,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                     value: None,
                     stack,
                     success: false,
+                    return_data: vec![],
                 };
             }
 
@@ -549,6 +560,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                     value: None,
                     stack,
                     success: false,
+                    return_data: vec![],
                 };
             }
 
@@ -584,6 +596,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                     value: None,
                     stack,
                     success: false,
+                    return_data: vec![],
                 };
             }
 
@@ -597,6 +610,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                     value: None,
                     stack,
                     success: false,
+                    return_data: vec![],
                 };
             }
             stack.swap(swap_number, 0)
@@ -636,6 +650,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             let code_str = data.state.get(&to.to_string()).unwrap().clone();
             let code: Vec<u8> = hex::decode(code_str).unwrap();
             let res = evm(code, data);
+            return_data = res.return_data;
             if res.value.is_some() {
                 let val = res.value.unwrap();
                 for i in 0..ret_size {
@@ -650,17 +665,17 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
         } else if opcode == 0xf3 {
             // RETURN
             let offset = stack.pop().unwrap().as_usize();
-            let size = stack.pop().unwrap().as_usize();
+            let return_size = stack.pop().unwrap();
+            let size = return_size.as_usize();
 
-            let ret = memory.read_u8s(offset, size * 8);
+            let ret = memory.read_u8s(offset, size);
 
             return EvmResult {
-                value: Some(ret),
+                value: Some(ret.clone()),
                 stack,
                 success: true,
+                return_data: ret,
             };
-
-            // Return result
         } else if opcode == 0xf4 {
             // DELEGATECALL
         } else if opcode == 0xf5 {
@@ -670,7 +685,8 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
         } else if opcode == 0xfd {
             // REVERT
             let offset = stack.pop().unwrap().as_usize();
-            let size = stack.pop().unwrap().as_usize();
+            let return_size = stack.pop().unwrap();
+            let size = return_size.as_usize();
 
             let ret = memory.read_u8s(offset, size);
 
@@ -678,6 +694,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                 value: Some(ret),
                 stack,
                 success: false,
+                return_data: vec![],
             };
         } else if opcode == 0xfe {
             // INVALID
@@ -685,6 +702,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                 value: None,
                 stack,
                 success: false,
+                return_data: vec![],
             };
         } else if opcode == 0xff {
             // SELFDESTRUCT
@@ -692,6 +710,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
                 value: None,
                 stack,
                 success: false,
+                return_data: vec![],
             };
         } else {
             println!("Unknown opcode: {}", opcode);
@@ -703,5 +722,6 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
         value: None,
         stack: stack,
         success: true,
+        return_data: vec![],
     };
 }
