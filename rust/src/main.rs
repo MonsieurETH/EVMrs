@@ -89,6 +89,21 @@ fn main() {
             "60426000526001601ffd".to_string(),
         );
 
+        state.insert(
+            "1266634752353449195776526855020778617035141537245".to_string(),
+            "30600055".to_string(),
+        );
+
+        state.insert(
+            "0".to_string(),
+            "0x1000000000000000000000000000000000000AAA".to_string(),
+        );
+
+        state.insert(
+            "91343852333181432387730302044767688728495787080".to_string(),
+            "6042600055".to_string(),
+        );
+
         let mut evm_data = EvmData {
             context: test.block.clone(),
             tx_data: test.tx.clone(),
@@ -96,7 +111,7 @@ fn main() {
             balances: balances,
         };
 
-        let result = evm(&code, &mut evm_data);
+        let result = evm(&code, &mut evm_data, true);
 
         let mut expected_stack: Vec<U256> = Vec::new();
         if let Some(ref stacks) = test.expect.stack {

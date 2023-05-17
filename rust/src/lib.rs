@@ -26,7 +26,7 @@ pub struct EvmContext {
     chainid: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct TxData {
     data: Option<String>,
     from: Option<String>,
@@ -88,7 +88,7 @@ impl EvmMemory {
     }
 }
 
-pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
+pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData, writable: bool) -> EvmResult {
     let mut stack: Vec<U256> = Vec::new();
     let mut pc = 0;
     let mut memory = EvmMemory::new();
@@ -529,6 +529,14 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             }
         } else if opcode == 0x55 {
             // SSTORE
+            if !writable {
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: false,
+                    return_data: vec![],
+                };
+            }
             let key = stack.pop().unwrap();
             let value = stack.pop().unwrap();
 
@@ -616,6 +624,16 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             stack.swap(swap_number, 0)
         } else if opcode >= 0xA0 && opcode <= 0xA4 {
             // LOGX (Not implemented)
+
+            if !writable {
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: false,
+                    return_data: vec![],
+                };
+            }
+
             let _offset = stack.pop().unwrap();
             let _size = stack.pop().unwrap();
             let log_number = (opcode - 0xA0) as usize;
@@ -637,8 +655,33 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             }
         } else if opcode == 0xf0 {
             // CREATE
+            if !writable {
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: false,
+                    return_data: vec![],
+                };
+            }
+
+            let value = stack.pop().unwrap();
+            let args_offset = stack.pop().unwrap().as_usize();
+            let args_size = stack.pop().unwrap().as_usize();
+
+            for i in 0..args_size {
+                let index = args_offset + i;
+                memory.write_u8(index, value.byte(i));
+            }
         } else if opcode == 0xf1 {
             // CALL
+            if !writable {
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: false,
+                    return_data: vec![],
+                };
+            }
             let _gas = stack.pop().unwrap();
             let to = stack.pop().unwrap();
             let _value = stack.pop().unwrap();
@@ -649,7 +692,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
 
             let code_str = data.state.get(&to.to_string()).unwrap().clone();
             let code: Vec<u8> = hex::decode(code_str).unwrap();
-            let res = evm(code, data);
+            let res = evm(code, data, true);
             return_data = res.return_data;
             if res.value.is_some() {
                 let val = res.value.unwrap();
@@ -678,10 +721,58 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData) -> EvmResult {
             };
         } else if opcode == 0xf4 {
             // DELEGATECALL
+            let _gas = stack.pop().unwrap();
+            let to = stack.pop().unwrap();
+            let _args_offset = stack.pop().unwrap();
+            let _args_size = stack.pop().unwrap();
+            let ret_offset = stack.pop().unwrap().as_usize();
+            let ret_size = stack.pop().unwrap().as_usize();
+
+            let code_str = data.state.get(&to.to_string()).unwrap().clone();
+            let code: Vec<u8> = hex::decode(code_str).unwrap();
+
+            let mut new_data = data.clone();
+            new_data.tx_data = Some(TxData {
+                to: Some(to.to_string()),
+                ..Default::default()
+            });
+            let res = evm(code, &mut new_data, true);
+            return_data = res.return_data;
+            for i in 0..ret_size {
+                memory.write_u8(ret_offset + i, return_data[i]);
+            }
+            stack.push(U256::one());
         } else if opcode == 0xf5 {
             // CREATE2
+            if !writable {
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: false,
+                    return_data: vec![],
+                };
+            }
         } else if opcode == 0xfa {
             // STATICCALL
+            let _gas = stack.pop().unwrap();
+            let address = stack.pop().unwrap();
+            let _args_offset = stack.pop().unwrap();
+            let _args_size = stack.pop().unwrap();
+            let ret_offset = stack.pop().unwrap().as_usize();
+            let ret_size = stack.pop().unwrap().as_usize();
+            let code_str = data.state.get(&address.to_string()).unwrap().clone();
+            let code: Vec<u8> = hex::decode(code_str).unwrap();
+            let res = evm(code, data, false);
+            return_data = res.return_data;
+            if res.value.is_some() {
+                let val = res.value.unwrap();
+                for i in 0..ret_size {
+                    memory.write_u8(ret_offset + i, val[i]);
+                }
+                stack.push(U256::from(res.success as u64));
+            } else {
+                stack.push(U256::zero());
+            }
         } else if opcode == 0xfd {
             // REVERT
             let offset = stack.pop().unwrap().as_usize();
