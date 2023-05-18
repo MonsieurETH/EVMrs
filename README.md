@@ -20,6 +20,6 @@ EVMrs is released under the MIT License. Please refer to the LICENSE file for mo
 
 For any questions or inquiries, please contact monsieureth@gmail.com.
 
-Thank you for your interest in Lors! Happy coding!
+Thank you for your interest in EVMrs! Happy coding!
 
 
