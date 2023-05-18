@@ -1,6 +1,6 @@
 # EVMrs
 
-EVMrs is a personal learning project focused on exploring the Ethereum Virtual Machine (EVM) and Rust programming language. It is based on the foundational code available at [evm-from-scratch](https://github.com/w1nt3r-eth/evm-from-scratch). This project serves as a platform for gaining hands-on experience and knowledge about EVM and Rust.
+EVMrs is a personal project focused on exploring/learning about the Ethereum Virtual Machine (EVM) and Rust. It's based on the code available at [evm-from-scratch](https://github.com/w1nt3r-eth/evm-from-scratch). This project serves as a platform for gaining hands-on experience and knowledge about EVM and Rust.
 
 ## State of the project
 All tests run correctly. Two or three opcodes (e.g. SELFDESTRUCT) have mocked information that should be modified in case you want to implement the EVM in its entirety. Since these modifications did not add much, they were not made. The only thing left to do is to clean up the code.
