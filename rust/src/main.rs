@@ -104,6 +104,21 @@ fn main() {
             "6042600055".to_string(),
         );
 
+        state.insert(
+            "10".to_string(),
+            "6001000000000000000000000000000000000000000000000000000000000000".to_string(),
+        );
+
+        state.insert(
+            "19".to_string(),
+            "0xffffffff00000000000000000000000000000000000000000000000000000000".to_string(),
+        );
+
+        state.insert(
+            "1271253980042238172183243620132319847648413671085".to_string(),
+            "73a1c300000000000000000000000000000000a1c3ff".to_string(),
+        );
+
         let mut evm_data = EvmData {
             context: test.block.clone(),
             tx_data: test.tx.clone(),

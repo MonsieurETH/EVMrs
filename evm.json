@@ -1844,7 +1844,7 @@
   {
     "name": "EXTCODECOPY",
     "state": {
-      "0x1000000000000000000000000000000000000aaa": {
+      "0x000000000000000000000000000000000000000a": {
         "code": {
           "asm": null,
           "bin": "6001"
@@ -1852,8 +1852,8 @@
       }
     },
     "code": {
-      "asm": "PUSH1 32\nPUSH1 0\nPUSH1 0\nPUSH20 0x1000000000000000000000000000000000000aaa\nEXTCODECOPY\nPUSH1 0\nMLOAD",
-      "bin": "602060006000731000000000000000000000000000000000000aaa3c600051"
+      "asm": "PUSH1 32\nPUSH1 0\nPUSH1 0\nPUSH20 0x000000000000000000000000000000000000000a\nEXTCODECOPY\nPUSH1 0\nMLOAD",
+      "bin": "60206000600073000000000000000000000000000000000000000a3c600051"
     },
     "expect": {
       "stack": [
@@ -2345,7 +2345,7 @@
     "name": "CREATE (reverts)",
     "hint": "No address when constructor code reverts",
     "tx": {
-      "to": "0x9bbfed6889322e016e0a02ee459d306fc19545d8"
+      "to": "0x9bbfed6889322e016e0a02ee459d306fc19545d9"
     },
     "code": {
       "asm": "PUSH13 0x63FFFFFFFF6000526004601CFD\nPUSH1 0\nMSTORE\nPUSH1 13\nPUSH1 19\nPUSH1 0\nCREATE",

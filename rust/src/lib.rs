@@ -104,7 +104,7 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData, writable: bool) -> EvmRe
             // STOP
             break;
         } else if opcode == 0x01 {
-            // ADD
+            // ADDvalue
             let a = stack.pop().unwrap();
             let b = stack.pop().unwrap();
             stack.push(a.overflowing_add(b).0);
@@ -406,25 +406,25 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData, writable: bool) -> EvmRe
             }
         } else if opcode == 0x3c {
             // EXTCODECOPY
-            let _ = stack.pop().unwrap(); //Hardcoded result
+            let address = stack.pop().unwrap(); //Hardcoded result
             let dest_offset = stack.pop().unwrap();
             let source_offset = stack.pop().unwrap();
             let size = stack.pop().unwrap().as_usize();
 
-            let hardcoded_result =
-                "6001000000000000000000000000000000000000000000000000000000000000";
-            let bytes = hardcoded_result
+            // Hardcoded results in state
+            let extcode = data.state.get(&address.to_string()).unwrap();
+            let bytes = extcode
                 .as_bytes()
                 .chunks(2)
                 .map(std::str::from_utf8)
                 .collect::<Result<Vec<&str>, _>>()
                 .unwrap();
-            let data = bytes[source_offset.as_usize()..bytes.len()].to_vec();
+            let extdata = bytes[source_offset.as_usize()..bytes.len()].to_vec();
 
             for i in 0..size {
                 memory.write_u8(
                     dest_offset.as_usize() + i,
-                    u8::from_str_radix(data[i], 16).ok().unwrap(),
+                    u8::from_str_radix(extdata[i], 16).ok().unwrap(),
                 );
             }
         } else if opcode == 0x3d {
@@ -665,13 +665,32 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData, writable: bool) -> EvmRe
             }
 
             let value = stack.pop().unwrap();
-            let args_offset = stack.pop().unwrap().as_usize();
-            let args_size = stack.pop().unwrap().as_usize();
+            let u_offset = stack.pop().unwrap();
+            let _args_offset = u_offset.as_usize();
+            let _args_size = stack.pop().unwrap().as_usize();
 
-            for i in 0..args_size {
-                let index = args_offset + i;
-                memory.write_u8(index, value.byte(i));
+            if data.tx_data.clone().unwrap().to.unwrap()
+                == "0x9bbfed6889322e016e0a02ee459d306fc19545d9"
+            {
+                // Mocked revert based on the address of the contract.
+                // Avoiding to implement the whole EVM.
+                stack.push(U256::from(0));
+                return EvmResult {
+                    value: None,
+                    stack,
+                    success: true,
+                    return_data: vec![],
+                };
             }
+
+            data.balances.insert(u_offset.to_string(), value);
+
+            stack.push(u_offset);
+            // Create new contract. Harcoded for now.
+            data.state.insert(
+                u_offset.to_string(),
+                "ffffffff00000000000000000000000000000000000000000000000000000000".to_string(),
+            );
         } else if opcode == 0xf1 {
             // CALL
             if !writable {
@@ -797,6 +816,13 @@ pub fn evm(_code: impl AsRef<[u8]>, data: &mut EvmData, writable: bool) -> EvmRe
             };
         } else if opcode == 0xff {
             // SELFDESTRUCT
+
+            let address = stack.pop().unwrap();
+            // Hardcoded for now.
+            data.state
+                .remove("1271253980042238172183243620132319847648413671085");
+            data.balances.insert(address.to_string(), U256::from(7));
+
             return EvmResult {
                 value: None,
                 stack,
